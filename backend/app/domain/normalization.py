@@ -21,6 +21,14 @@ Três regras da diretriz moram aqui, e todas as três são sobre **não inventar
     Renormalizar por provedor faria cada um ser avaliado numa régua diferente, e
     a §11.1 proíbe isso em letra maiúscula.
 
+    **Exceção configurável** (`comparability.missing_for_some_scores_zero`):
+    quando parte dos provedores tem valor e parte não, o indicador pode entrar
+    em `V` com **zero para quem não tem**. Contraria a §11 de propósito — sem
+    isso, basta um concorrente sem documento para o provedor que documentou
+    perder a vantagem naquele indicador. O zero é penalidade por ausência de
+    documento, não medição: fica marcado `imputed_zero` em cada linha, o status
+    original (NOT_FOUND/PARTIAL/INVALID) é preservado e o relatório diz isso.
+
 A conversão de evidência qualitativa em número é da rubrica (§10.1) — regra
 determinística sobre uma categoria que a LLM apenas classificou dentro de uma
 allowlist. A LLM não atribui nota em nenhum ponto deste arquivo.
@@ -87,6 +95,9 @@ class NormalizedPerformance:
     original_value: Optional[float]
     normalized_value: Optional[float]
     status: str
+    #: `True` quando o 0,0 em `normalized_value` não veio de evidência: é a
+    #: penalidade de `missing_for_some_scores_zero` para o provedor sem valor.
+    imputed_zero: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -95,6 +106,7 @@ class NormalizedPerformance:
             "original_value": self.original_value,
             "normalized_value": self.normalized_value,
             "status": self.status,
+            "imputed_zero": self.imputed_zero,
         }
 
 
@@ -121,10 +133,19 @@ class ComparabilitySet:
             if n.normalized_value is not None
         }
 
+    def imputed_zero(self) -> Dict[str, List[str]]:
+        """Indicador → provedores que entraram nele com zero por falta de valor."""
+        por_indicador: Dict[str, List[str]] = {}
+        for n in self.normalized:
+            if n.imputed_zero and n.indicator_id in self.valid:
+                por_indicador.setdefault(n.indicator_id, []).append(n.provider_id)
+        return por_indicador
+
     def as_dict(self) -> Dict[str, Any]:
         return {
             "valid_indicators": list(self.valid),
             "excluded_indicators": dict(self.excluded),
+            "imputed_zero": self.imputed_zero(),
             "comparability_rate": self.comparability_rate,
             "normalized": [n.as_dict() for n in self.normalized],
         }
@@ -329,6 +350,64 @@ def build_comparability_set(
         }
 
         faltando = [pid for pid in provedores if pid not in usaveis]
+
+        if faltando and usaveis and methodology.missing_for_some_scores_zero:
+            # Entra em V com zero para quem não tem valor. A normalização usa só
+            # os valores observados — o zero não participa de max/min, senão
+            # uma minimização (min/x) ficaria indefinida por causa da penalidade.
+            valores_normalizados, motivo = normalize_values(
+                usaveis,
+                indicator.direction or DIRECTION_BENEFIT,
+                absolute=indicator.is_qualitative,
+            )
+            if motivo is None:
+                valid.append(indicator.id)
+                for pid in provedores:
+                    entrada = entradas.get(pid)
+                    if pid in usaveis:
+                        normalized.append(
+                            NormalizedPerformance(
+                                provider_id=pid,
+                                indicator_id=indicator.id,
+                                original_value=usaveis[pid],
+                                normalized_value=valores_normalizados[pid],
+                                status=STATUS_FOUND,
+                            )
+                        )
+                    else:
+                        normalized.append(
+                            NormalizedPerformance(
+                                provider_id=pid,
+                                indicator_id=indicator.id,
+                                original_value=entrada.value if entrada else None,
+                                normalized_value=0.0,
+                                status=entrada.status if entrada else STATUS_NOT_FOUND,
+                                imputed_zero=True,
+                            )
+                        )
+                continue
+            # Fórmula indefinida entre os observados (todos zero, valor fora da
+            # escala): o indicador sai sem zero para ninguém, e o motivo é o da
+            # fórmula. `missing_for_some_providers` diria que a falta de valor
+            # tirou o indicador, e com esta flag ela não tira.
+            excluded[indicator.id] = motivo
+            for pid in provedores:
+                entrada = entradas.get(pid)
+                normalized.append(
+                    NormalizedPerformance(
+                        provider_id=pid,
+                        indicator_id=indicator.id,
+                        original_value=usaveis.get(pid, entrada.value if entrada else None),
+                        normalized_value=None,
+                        status=(
+                            STATUS_INVALID
+                            if pid in usaveis
+                            else (entrada.status if entrada else STATUS_NOT_FOUND)
+                        ),
+                    )
+                )
+            continue
+
         if faltando:
             # Um indicador invalidado a montante — unidade divergente (§4.4.1.1)
             # ou safra divergente — chega aqui sem nenhum valor utilizável, e

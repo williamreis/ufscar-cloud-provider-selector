@@ -364,7 +364,9 @@ export default function SynthesisAudit({
                           return (
                             <td key={providers[i].id} className="px-3 py-2.5 text-right">
                               <span className="block text-[11px] text-slate-400">
-                                {shownValue(row)} → nota {f3(row.normalized_value)}
+                                {row.imputed_zero
+                                  ? "sem evidência → 0 (penalidade)"
+                                  : `${shownValue(row)} → nota ${f3(row.normalized_value)}`}
                               </span>
                               <span
                                 className={
@@ -518,7 +520,11 @@ export default function SynthesisAudit({
                           </span>
                         </td>
                         <td className="px-3 py-2.5">
-                          {row.normalized_value === null ? "—" : f4(row.normalized_value)}
+                          {row.normalized_value === null
+                            ? "—"
+                            : row.imputed_zero
+                              ? `${f4(row.normalized_value)} (penalidade: sem evidência)`
+                              : f4(row.normalized_value)}
                         </td>
                         <td className="px-3 py-2.5">
                           {row.effective_weight === null ? "—" : f4(row.effective_weight)}
