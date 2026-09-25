@@ -428,6 +428,16 @@ async def recommend(q: QuestionnaireResponse):
             f"não entraram na soma, por não alterarem a ordem do ranking "
             f"({_nomes(equivalentes)}). A nota de cada um continua no relatório."
         )
+    # `missing_for_some_scores_zero`: o zero não é desempenho medido, é
+    # penalidade por falta de documento — e quem lê o ranking precisa saber
+    # que parte da diferença vem daí.
+    penalizados = comparability.imputed_zero()
+    if penalizados:
+        limitations.append(
+            f"{len(penalizados)} indicador(es) entraram na soma com nota 0 para "
+            f"provedor(es) sem evidência ({_nomes(list(penalizados))}). O zero é "
+            "penalidade por ausência de documento, não desempenho medido."
+        )
     if not comparability.valid:
         limitations.append(
             "Nenhum indicador reuniu evidência comparável entre os provedores: o ranking "

@@ -46,6 +46,18 @@ def metodologia():
     return load_methodology()
 
 
+def _regra_11_1(metodologia):
+    """
+    A metodologia com `missing_for_some_scores_zero` desligado: indicador sem
+    valor para algum provedor sai para todos (§11.1), sem zero para ninguém.
+    """
+    return replace(metodologia, missing_for_some_scores_zero=False)
+
+
+def _com_zero(metodologia):
+    return replace(metodologia, missing_for_some_scores_zero=True)
+
+
 def desempenho(indicator_id, valores, status=STATUS_FOUND):
     return [
         PerformanceInput(
@@ -239,7 +251,7 @@ def test_not_found_nao_vira_zero(metodologia):
         desempenho("performance_availability", {"aws": 99.99, "gcp": None, "azure": 99.95}),
         IDS,
         ["performance_availability"],
-        metodologia,
+        _regra_11_1(metodologia),
     )
     assert conjunto.valid == ()
     assert conjunto.excluded["performance_availability"] == EXCLUDED_MISSING_FOR_SOME
@@ -257,13 +269,143 @@ def test_conjunto_valido_e_o_mesmo_para_todos_os_provedores(metodologia):
         *desempenho("performance_latency", {"aws": 20.0, "gcp": None, "azure": 25.0}),
     ]
     conjunto = build_comparability_set(
-        performances, IDS, ["performance_availability", "performance_latency"], metodologia
+        performances, IDS, ["performance_availability", "performance_latency"], _regra_11_1(metodologia)
     )
     assert conjunto.valid == ("performance_availability",)
 
     # Nenhum provedor recebe valor normalizado para o indicador descartado.
     por_indicador = [n for n in conjunto.normalized if n.indicator_id == "performance_latency"]
     assert all(n.normalized_value is None for n in por_indicador)
+
+
+# --- missing_for_some_scores_zero: zero como penalidade por ausência --------
+
+
+def test_scales_liga_o_zero_para_quem_falta(metodologia):
+    """Decisão registrada no scales.json, dentro do hash de versão."""
+    assert metodologia.missing_for_some_scores_zero is True
+
+
+def test_com_zero_indicador_parcial_entra_e_ausente_recebe_zero(metodologia):
+    """
+    Quem documentou mantém a vantagem: o indicador entra em V para todos e o
+    provedor sem valor fica com 0,0 — marcado como imputado, status preservado.
+    """
+    conjunto = build_comparability_set(
+        desempenho("performance_availability", {"aws": 99.99, "gcp": None, "azure": 99.95}),
+        IDS,
+        ["performance_availability"],
+        _com_zero(metodologia),
+    )
+    assert conjunto.valid == ("performance_availability",)
+    assert "performance_availability" not in conjunto.excluded
+    assert conjunto.imputed_zero() == {"performance_availability": ["gcp"]}
+
+    normalizados = {n.provider_id: n for n in conjunto.normalized}
+    assert normalizados["gcp"].normalized_value == 0.0
+    assert normalizados["gcp"].imputed_zero is True
+    assert normalizados["gcp"].status == STATUS_NOT_FOUND
+    assert normalizados["gcp"].original_value is None
+    # A régua é a dos valores observados: o zero não entra no max.
+    assert normalizados["aws"].normalized_value == pytest.approx(1.0)
+    assert normalizados["azure"].normalized_value == pytest.approx(99.95 / 99.99)
+    assert normalizados["aws"].imputed_zero is False
+
+
+def test_com_zero_minimizacao_nao_fica_indefinida(metodologia):
+    """min/x com o zero da penalidade seria divisão por zero; ele fica fora da conta."""
+    conjunto = build_comparability_set(
+        desempenho("performance_latency", {"aws": 20.0, "gcp": None, "azure": 25.0}),
+        IDS,
+        ["performance_latency"],
+        _com_zero(metodologia),
+    )
+    assert conjunto.valid == ("performance_latency",)
+    normalizados = {n.provider_id: n.normalized_value for n in conjunto.normalized}
+    assert normalizados == pytest.approx({"aws": 1.0, "gcp": 0.0, "azure": 20.0 / 25.0})
+
+
+def test_com_zero_partial_tambem_e_penalizado(metodologia):
+    """PARTIAL não é valor utilizável; com a flag, recebe o zero e guarda o status."""
+    performances = [
+        PerformanceInput("aws", "performance_availability", STATUS_PARTIAL, 99.9),
+        PerformanceInput("gcp", "performance_availability", STATUS_FOUND, 99.5),
+        PerformanceInput("azure", "performance_availability", STATUS_FOUND, 99.99),
+    ]
+    conjunto = build_comparability_set(
+        performances, IDS, ["performance_availability"], _com_zero(metodologia)
+    )
+    aws = next(n for n in conjunto.normalized if n.provider_id == "aws")
+    assert conjunto.valid == ("performance_availability",)
+    assert aws.normalized_value == 0.0 and aws.imputed_zero
+    assert aws.status == STATUS_PARTIAL
+
+
+def test_com_zero_sem_nenhum_valor_continua_no_evidence(metodologia):
+    """A flag só age quando alguém tem valor; ninguém tendo, nada é imputado."""
+    conjunto = build_comparability_set(
+        desempenho("performance_availability", {"aws": None, "gcp": None, "azure": None}),
+        IDS,
+        ["performance_availability"],
+        _com_zero(metodologia),
+    )
+    assert conjunto.valid == ()
+    assert conjunto.excluded["performance_availability"] == EXCLUDED_NO_EVIDENCE
+    assert conjunto.imputed_zero() == {}
+
+
+def test_com_zero_formula_indefinida_entre_observados_sai(metodologia):
+    """
+    Observados todos zerados em benefício: 0/0. Sai sem imputar, e o motivo é o
+    da fórmula — não a falta de valor, que com a flag não exclui ninguém.
+    """
+    conjunto = build_comparability_set(
+        desempenho("performance_availability", {"aws": 0.0, "gcp": None, "azure": 0.0}),
+        IDS,
+        ["performance_availability"],
+        _com_zero(metodologia),
+    )
+    assert conjunto.valid == ()
+    assert conjunto.excluded["performance_availability"] == EXCLUDED_NON_DISCRIMINATIVE
+    assert conjunto.imputed_zero() == {}
+    gcp = next(n for n in conjunto.normalized if n.provider_id == "gcp")
+    assert gcp.normalized_value is None and gcp.status == STATUS_NOT_FOUND
+
+
+def test_com_zero_minimizacao_invalida_entre_observados_sai_como_invalida(metodologia):
+    conjunto = build_comparability_set(
+        desempenho("performance_latency", {"aws": 0.0, "gcp": None, "azure": 25.0}),
+        IDS,
+        ["performance_latency"],
+        _com_zero(metodologia),
+    )
+    assert conjunto.valid == ()
+    assert conjunto.excluded["performance_latency"] == EXCLUDED_INVALID_FOR_COMPARISON
+
+
+def test_com_zero_o_ausente_pontua_abaixo_de_quem_documentou(metodologia):
+    """
+    O efeito pedido: o indicador conta a favor de quem tem o dado. Sem a flag,
+    a diferença entre AWS e GCP neste cenário seria só a da disponibilidade.
+    """
+    performances = [
+        *desempenho("performance_availability", {"aws": 99.9, "gcp": 99.9, "azure": 99.9}),
+        *desempenho("performance_latency", {"aws": 20.0, "gcp": None, "azure": 20.0}),
+    ]
+    ids = ["performance_availability", "performance_latency"]
+    pesos = {"performance_availability": 0.5, "performance_latency": 0.5}
+
+    def pontuar(m):
+        conjunto = build_comparability_set(performances, IDS, ids, m)
+        efetivos = renormalize_weights(pesos, conjunto.valid)
+        resultado = compute_scores(PROVEDORES, conjunto, efetivos, m)
+        return {s.provider_id: s.score for s in resultado.scores}
+
+    com = pontuar(_com_zero(metodologia))
+    sem = pontuar(_regra_11_1(metodologia))
+    assert com["aws"] > com["gcp"]
+    assert com["aws"] == pytest.approx(com["azure"])
+    assert sem["aws"] == pytest.approx(sem["gcp"])
 
 
 def test_indicador_sem_peso_nao_entra_mesmo_com_evidencia(metodologia):
@@ -286,7 +428,7 @@ def test_partial_nao_conta_como_comparavel_por_padrao(metodologia):
         PerformanceInput("azure", "performance_availability", STATUS_FOUND, 99.99),
     ]
     conjunto = build_comparability_set(
-        performances, IDS, ["performance_availability"], metodologia
+        performances, IDS, ["performance_availability"], _regra_11_1(metodologia)
     )
     assert conjunto.valid == ()
 
@@ -297,7 +439,7 @@ def test_taxa_de_comparabilidade(metodologia):
         *desempenho("performance_latency", {"aws": 20.0, "gcp": None, "azure": 25.0}),
     ]
     conjunto = build_comparability_set(
-        performances, IDS, ["performance_availability", "performance_latency"], metodologia
+        performances, IDS, ["performance_availability", "performance_latency"], _regra_11_1(metodologia)
     )
     assert conjunto.comparability_rate == pytest.approx(0.5)
 

@@ -68,6 +68,11 @@ def build_synthesis(
         (f.provider_id, f.indicator_id): f for f in getattr(extraction, "findings", ())
     }
     normalizados = comparability.normalized_by()
+    penalizados = {
+        (pid, indicator_id)
+        for indicator_id, pids in comparability.imputed_zero().items()
+        for pid in pids
+    }
     nomes = {i.id: i.name for i in methodology.indicators}
 
     # Peso efetivo somado por dimensão (§11.2). É ESTE o peso que fecha a
@@ -160,6 +165,9 @@ def build_synthesis(
                     "source_year": finding.source_year,
                     "in_comparison": indicator.id in comparability.valid,
                     "excluded_reason": comparability.excluded.get(indicator.id),
+                    # 0,0 atribuído por falta de valor (`missing_for_some_scores_zero`),
+                    # não medido: o relatório não pode apresentá-lo como desempenho.
+                    "imputed_zero": (score.provider_id, indicator.id) in penalizados,
                     "normalized_value": (
                         round(float(normalizado), 6) if normalizado is not None else None
                     ),

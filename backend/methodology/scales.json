@@ -346,7 +346,28 @@
       "implementação: muda quais indicadores entram na Equação 5, e por isso",
       "mora aqui e entra no hash de versão."
     ],
-    "exclude_non_discriminative": true
+    "exclude_non_discriminative": true,
+    "_nota_missing_for_some": [
+      "`missing_for_some_scores_zero` trata o indicador que tem valor para",
+      "PARTE dos provedores (motivo `missing_for_some_providers`).",
+      "",
+      "`false` (regra da §11.1): o indicador sai para todos. Quem documentou",
+      "não perde pontos, mas perde a vantagem — basta um concorrente sem",
+      "documento para o indicador deixar de contar.",
+      "",
+      "`true`: o indicador entra em V para todos, e o provedor sem valor",
+      "recebe 0 nele. A normalização usa só os valores observados. Contraria",
+      "a §11/§42.4 ('NOT_FOUND não vira 0') por decisão explícita: o zero é",
+      "penalidade por ausência de documento, não medição. Fica marcado",
+      "`imputed_zero`, o status original é preservado e a avaliação sai com",
+      "limitação declarada.",
+      "",
+      "Se a fórmula ficar indefinida entre os observados (todos zero, valor",
+      "fora da escala), o indicador sai sem zero para ninguém, com o motivo da",
+      "fórmula (`non_discriminative` ou `invalid_for_comparison`). Com `true`,",
+      "`missing_for_some_providers` não ocorre."
+    ],
+    "missing_for_some_scores_zero": true
   },
   "tie_break": {
     "_todo": "TODO ACADÊMICO 03 — política de desempate e margem de indiferença.",
