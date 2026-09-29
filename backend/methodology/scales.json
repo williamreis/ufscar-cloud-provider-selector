@@ -344,9 +344,16 @@
       "",
       "`false` restaura o comportamento anterior. É decisão acadêmica, não de",
       "implementação: muda quais indicadores entram na Equação 5, e por isso",
-      "mora aqui e entra no hash de versão."
+      "mora aqui e entra no hash de versão.",
+      "",
+      "DECISÃO ATUAL (29/09/2026): `false`. O indicador que dá a mesma nota a",
+      "todos permanece na Equação 5. A ordem do ranking é a mesma nos dois",
+      "modos; o que muda é o significado da nota: com `false` ela reflete também",
+      "o que os provedores atendem igualmente, ao custo de margens menores e",
+      "mais empates declarados. O caso 0/0 (todos zerados em benefício)",
+      "continua fora em qualquer modo, porque ali não há número a incluir."
     ],
-    "exclude_non_discriminative": true,
+    "exclude_non_discriminative": false,
     "_nota_missing_for_some": [
       "`missing_for_some_scores_zero` trata o indicador que tem valor para",
       "PARTE dos provedores (motivo `missing_for_some_providers`).",

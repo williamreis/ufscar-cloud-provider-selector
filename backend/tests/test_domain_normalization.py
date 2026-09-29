@@ -473,6 +473,40 @@ def _sem_a_regra(metodologia):
     return replace(metodologia, exclude_non_discriminative=False)
 
 
+def _com_a_regra(metodologia):
+    """A mesma metodologia com `exclude_non_discriminative` ligado."""
+    return replace(metodologia, exclude_non_discriminative=True)
+
+
+def test_scales_mantem_na_soma_o_indicador_igual_para_todos(metodologia):
+    """
+    Decisão registrada no scales.json: o indicador que dá a mesma nota a todos
+    permanece na Equação 5. Não muda a ordem; a nota passa a refletir também o
+    que os provedores atendem igualmente.
+    """
+    assert metodologia.exclude_non_discriminative is False
+    performances = [
+        *desempenho("performance_availability", {"aws": 99.99, "gcp": 99.9, "azure": 99.5}),
+        *desempenho("performance_latency", {"aws": 30.0, "gcp": 30.0, "azure": 30.0}),
+    ]
+    ids = ["performance_availability", "performance_latency"]
+    conjunto = build_comparability_set(performances, IDS, ids, metodologia)
+    assert conjunto.valid == ("performance_availability", "performance_latency")
+    assert conjunto.excluded == {}
+
+
+def test_todos_zerados_saem_mesmo_sem_a_regra(metodologia):
+    """0/0 não tem número a incluir: sai em qualquer modo."""
+    conjunto = build_comparability_set(
+        desempenho("performance_availability", {"aws": 0.0, "gcp": 0.0, "azure": 0.0}),
+        IDS,
+        ["performance_availability"],
+        _sem_a_regra(metodologia),
+    )
+    assert conjunto.valid == ()
+    assert conjunto.excluded["performance_availability"] == EXCLUDED_NON_DISCRIMINATIVE
+
+
 def test_indicador_igual_para_todos_sai_da_soma(metodologia):
     """
     Indicador que dá o mesmo valor a todas as alternativas ocupa peso e não
@@ -484,7 +518,7 @@ def test_indicador_igual_para_todos_sai_da_soma(metodologia):
         *desempenho("performance_latency", {"aws": 30.0, "gcp": 30.0, "azure": 30.0}),
     ]
     ids = ["performance_availability", "performance_latency"]
-    conjunto = build_comparability_set(performances, IDS, ids, metodologia)
+    conjunto = build_comparability_set(performances, IDS, ids, _com_a_regra(metodologia))
 
     assert conjunto.valid == ("performance_availability",)
     assert conjunto.excluded["performance_latency"] == EXCLUDED_NON_DISCRIMINATIVE
@@ -537,7 +571,7 @@ def test_tirar_o_que_nao_discrimina_nao_muda_a_ordem(metodologia):
         )
 
     ordem_com, amplitude_com = ranking(_sem_a_regra(metodologia))
-    ordem_sem, amplitude_sem = ranking(metodologia)
+    ordem_sem, amplitude_sem = ranking(_com_a_regra(metodologia))
 
     assert ordem_com == ordem_sem
     # O indicador constante levava 70% do peso: tirá-lo devolve a distância real.

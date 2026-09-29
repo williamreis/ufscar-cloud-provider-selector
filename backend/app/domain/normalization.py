@@ -6,11 +6,12 @@ Três regras da diretriz moram aqui, e todas as três são sobre **não inventar
   - **§9.3 — o indicador que não separa ninguém não entra na conta.** Na forma
     original: quando a fórmula fica indefinida (todos com o mesmo valor a zero,
     máximo zero), o indicador é marcado `non_discriminative` ou
-    `invalid_for_comparison` e sai. Não há valor de recurso. A regra vale também
-    quando a fórmula é definida mas devolve o mesmo valor para todas as
+    `invalid_for_comparison` e sai. Não há valor de recurso. Opcionalmente
+    (`comparability.exclude_non_discriminative`, hoje desligado), a regra vale
+    também quando a fórmula é definida mas devolve o mesmo valor para todas as
     alternativas — um indicador assim soma a mesma parcela a todas as pontuações
-    e é incapaz de mudar a ordem, só comprime a distância entre elas. Ele sai da
-    soma e permanece no relatório, com a nota que obteve.
+    e é incapaz de mudar a ordem, só comprime a distância entre elas. Ligada, ele
+    sai da soma e permanece no relatório, com a nota que obteve.
 
   - **§11 — ausência de evidência não é desempenho zero.** `NOT_FOUND` retira o
     indicador do conjunto comparável; não zera a nota de ninguém. Zero afirmaria
