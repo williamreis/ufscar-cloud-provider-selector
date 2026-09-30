@@ -540,10 +540,11 @@ export default function SynthesisAudit({
             </div>
           )}
 
-          {top && (
-            <div>
+          {providers.map((p) => (
+            <div key={p.id}>
               <h4 className="mb-2 text-sm font-semibold text-slate-800">
-                Indicador a indicador — {top.name}
+                Indicador a indicador — {p.name}{" "}
+                <span className="font-normal text-slate-500">({p.rank}º, pontuação {f3(p.score)})</span>
               </h4>
               <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                 <table className="w-full min-w-[52rem] text-sm">
@@ -567,7 +568,7 @@ export default function SynthesisAudit({
                     </tr>
                   </thead>
                   <tbody className="tabular-nums">
-                    {top.indicators.map((row) => (
+                    {p.indicators.map((row) => (
                       <tr
                         key={row.indicator_id}
                         className={`border-t border-slate-100 align-top ${
@@ -627,17 +628,17 @@ export default function SynthesisAudit({
                   <tfoot>
                     <tr className="border-t border-slate-200 bg-slate-50 text-xs text-slate-500">
                       <td className="px-3 py-2" colSpan={5}>
-                        Soma das contribuições = score final de {top.name}
+                        Soma das contribuições = score final de {p.name}
                       </td>
                       <td className="px-3 py-2 font-semibold tabular-nums text-slate-700">
-                        {f3(top.score)}
+                        {f3(p.score)}
                       </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             </div>
-          )}
+          ))}
 
           <p className="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
             <strong>De onde vem cada número:</strong> os <em>pesos das dimensões</em> vêm das suas
