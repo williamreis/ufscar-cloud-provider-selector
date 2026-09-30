@@ -214,6 +214,9 @@ class Methodology:
     #: todas as alternativas. Ver `comparability` no scales.json.
     exclude_non_discriminative: bool
     indicators_version: str
+    #: Indicador com valor para parte dos provedores entra na Equação 5 com zero
+    #: para os demais, em vez de sair para todos. Ver `comparability` no scales.json.
+    missing_for_some_scores_zero: bool = False
     not_operationalized: Tuple[ExcludedIndicator, ...] = ()
     exclusion_reasons: Mapping[str, str] = field(default_factory=dict)
     sources: Mapping[str, str] = field(default_factory=dict)
@@ -582,6 +585,9 @@ def load_methodology(
         ),
         exclude_non_discriminative=bool(
             comparability.get("exclude_non_discriminative", False)
+        ),
+        missing_for_some_scores_zero=bool(
+            comparability.get("missing_for_some_scores_zero", False)
         ),
         indicators_version=str(indicators_raw.get("version", "1")),
         not_operationalized=excluidos,

@@ -165,6 +165,8 @@ export interface SynthesisIndicator {
   /** Entrou no conjunto comparável V (§11.1) */
   in_comparison: boolean;
   excluded_reason: string | null;
+  /** 0 atribuído por falta de valor (missing_for_some_scores_zero): penalidade, não medição */
+  imputed_zero?: boolean;
   /** r_ij — Equações 1 e 2 */
   normalized_value: number | null;
   /** w'_j — peso global renormalizado sobre V (§11.2) */

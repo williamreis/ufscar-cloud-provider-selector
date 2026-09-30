@@ -593,10 +593,10 @@ def test_desempenho_extraido_alimenta_o_ranking(monkeypatch, metodologia, dispon
     conjunto = build_comparability_set(
         extraction.performances(), ["aws", "gcp"], ["performance_availability"], metodologia
     )
-    # Sem valor válido para todos, o indicador sai da comparação (§11.1) — e o
-    # ranking não inventa nota para o provedor que ficou sem evidência.
-    assert conjunto.valid == ()
-    assert conjunto.excluded["performance_availability"] == "missing_for_some_providers"
+    # Com `missing_for_some_scores_zero` o indicador entra e o GCP, sem
+    # evidência válida, recebe 0 — marcado como imputado, não como medido.
+    assert conjunto.valid == ("performance_availability",)
+    assert conjunto.imputed_zero() == {"performance_availability": ["gcp"]}
 
 
 def test_trecho_do_relatorio_leva_os_termos_do_quadro_27_que_contem(
