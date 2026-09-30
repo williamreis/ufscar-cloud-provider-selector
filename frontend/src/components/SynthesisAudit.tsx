@@ -7,7 +7,7 @@ const LABELS: Record<string, string> = {
   security: "Segurança",
 };
 
-export const EXCLUSION_REASONS: Record<string, string> = {
+const EXCLUSION_REASONS: Record<string, string> = {
   no_evidence: "nenhum provedor tem evidência",
   missing_for_some_providers: "falta evidência em algum provedor",
   non_discriminative: "mesma nota para todos — não altera a ordem",
@@ -17,14 +17,10 @@ export const EXCLUSION_REASONS: Record<string, string> = {
 
 const f3 = (n: number) => n.toFixed(3);
 const f4 = (n: number) => n.toFixed(4);
-const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 // Abaixo disso duas notas normalizadas são a mesma nota: evita apontar como
 // "diferença" o resíduo de ponto flutuante de uma divisão.
 const SAME_VALUE_EPS = 1e-9;
-// Diferença entre o peso do AHP e o peso aplicado que vale a pena explicar —
-// meio ponto percentual some no arredondamento de `pct`.
-const WEIGHT_SHIFT_MIN = 0.005;
 
 type SynthesisProvider = SynthesisResult["providers"][number];
 
@@ -71,7 +67,7 @@ function shownValue(row: SynthesisIndicator): string {
  * excluídos entre **todos** os que ficaram. É com este peso — e não com o do
  * AHP — que `peso × nota da dimensão` fecha a pontuação final.
  */
-export function appliedDimensionWeights(synthesis: SynthesisResult): Record<string, number> {
+function appliedDimensionWeights(synthesis: SynthesisResult): Record<string, number> {
   // O backend passou a publicar esta soma (`dimension_effective_weights`), que
   // é a autoridade: é o número com que a dimensão entrou na Equação 5.
   //
@@ -181,29 +177,20 @@ export default function SynthesisAudit({
   const [open, setOpen] = useState(false);
   const {
     criteria_order: criteria,
-    dimension_weights: dimWeights,
     providers,
     valid_indicators: valid,
     excluded_indicators: excluded,
   } = synthesis;
-  const top = providers[0];
   const excludedList = Object.entries(excluded);
 
   const applied = appliedDimensionWeights(synthesis);
   const lines = indicatorLines(synthesis);
   const decisive = lines.filter((l) => l.kind === "decisive");
   const excludedCount = lines.filter((l) => l.kind === "excluded").length;
-  const indicatorsTotal = (dimension: string) =>
-    top?.indicators.filter((r) => r.dimension === dimension).length ?? 0;
-  const indicatorsValid = (dimension: string) =>
-    synthesis.indicators.filter((i) => i.dimension === dimension).length;
   // Indicadores que reuniram evidência mas deram a mesma nota a todos. Com a
   // regra do `scales.json` ativa eles saem da soma e passam a viver aqui, em
   // `excluded` — não são lacuna, são resultado.
   const equivalentes = excludedList.filter(([, motivo]) => motivo === "non_discriminative");
-  const shiftedDimensions = criteria.filter(
-    (c) => Math.abs((applied[c] ?? 0) - (dimWeights[c] ?? 0)) >= WEIGHT_SHIFT_MIN,
-  );
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -305,26 +292,6 @@ export default function SynthesisAudit({
               </li>
             ))}
           </ul>
-
-          {shiftedDimensions.length > 0 && (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-              <p>
-                <strong>O peso aplicado não é o mesmo que você definiu no AHP.</strong> Indicadores
-                sem evidência comparável saem da conta para todos os provedores, e o peso deles é
-                redistribuído entre todos os indicadores que ficaram, de todas as dimensões.
-                Dimensões que perderam mais indicadores perdem peso:
-              </p>
-              <ul className="mt-1.5 space-y-0.5 tabular-nums">
-                {shiftedDimensions.map((c) => (
-                  <li key={c}>
-                    {LABELS[c] || c}: <strong>{pct(dimWeights[c] ?? 0)}</strong> no AHP →{" "}
-                    <strong>{pct(applied[c] ?? 0)}</strong> aplicado ({indicatorsValid(c)} de{" "}
-                    {indicatorsTotal(c)} indicadores com evidência comparável)
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
 
         {/* Camada 2 — de onde vem a diferença entre os provedores */}

@@ -213,16 +213,6 @@ export default function IndicatorWeights({
               )}
             </div>
           </div>
-
-          <p className="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
-            <strong>Como ler:</strong> o <em>coeficiente</em> traduz a alternativa que você
-            marcou nas perguntas 1–15. O <em>peso local</em> é esse coeficiente dividido
-            pela soma dos coeficientes da mesma dimensão — por isso cada dimensão fecha em
-            1. O <em>peso global</em> multiplica o peso local pelo peso da dimensão, que
-            veio das suas comparações par-a-par. O <em>peso efetivo</em> é o global
-            renormalizado sobre os indicadores que entraram na comparação, e é ele que
-            multiplicou o desempenho na pontuação final.
-          </p>
         </div>
       )}
     </div>
