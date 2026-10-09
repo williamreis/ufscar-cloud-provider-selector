@@ -7,7 +7,7 @@ const LABELS: Record<string, string> = {
   security: "Segurança",
 };
 
-export const EXCLUSION_REASONS: Record<string, string> = {
+const EXCLUSION_REASONS: Record<string, string> = {
   no_evidence: "nenhum provedor tem evidência",
   missing_for_some_providers: "falta evidência em algum provedor",
   non_discriminative: "mesma nota para todos — não altera a ordem",
@@ -17,14 +17,10 @@ export const EXCLUSION_REASONS: Record<string, string> = {
 
 const f3 = (n: number) => n.toFixed(3);
 const f4 = (n: number) => n.toFixed(4);
-const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 // Abaixo disso duas notas normalizadas são a mesma nota: evita apontar como
 // "diferença" o resíduo de ponto flutuante de uma divisão.
 const SAME_VALUE_EPS = 1e-9;
-// Diferença entre o peso do AHP e o peso aplicado que vale a pena explicar —
-// meio ponto percentual some no arredondamento de `pct`.
-const WEIGHT_SHIFT_MIN = 0.005;
 
 type SynthesisProvider = SynthesisResult["providers"][number];
 
@@ -71,7 +67,7 @@ function shownValue(row: SynthesisIndicator): string {
  * excluídos entre **todos** os que ficaram. É com este peso — e não com o do
  * AHP — que `peso × nota da dimensão` fecha a pontuação final.
  */
-export function appliedDimensionWeights(synthesis: SynthesisResult): Record<string, number> {
+function appliedDimensionWeights(synthesis: SynthesisResult): Record<string, number> {
   // O backend passou a publicar esta soma (`dimension_effective_weights`), que
   // é a autoridade: é o número com que a dimensão entrou na Equação 5.
   //
@@ -91,35 +87,68 @@ export function appliedDimensionWeights(synthesis: SynthesisResult): Record<stri
   return pesos;
 }
 
-/** Indicador válido cuja nota normalizada não é a mesma em todos os provedores. */
-interface DecisiveIndicator {
+/**
+ * Um indicador na tabela "O que separou os provedores".
+ *
+ * - `decisive`: entrou na soma e deu notas diferentes — é o que muda a ordem;
+ * - `equal`: entrou na soma (ou saiu por `non_discriminative`) com a mesma nota
+ *   para todos — soma a mesma parcela a cada um e não mexe na ordem;
+ * - `excluded`: ficou fora da conta pelo motivo em `reason`.
+ */
+interface IndicatorLine {
   id: string;
   name: string;
-  weight: number;
+  kind: "decisive" | "equal" | "excluded";
+  weight: number | null;
   rows: (SynthesisIndicator | undefined)[];
   bestContribution: number;
+  reason: string | null;
 }
 
-function decisiveIndicators(synthesis: SynthesisResult): DecisiveIndicator[] {
-  const resultado: DecisiveIndicator[] = [];
-  for (const indicator of synthesis.indicators) {
-    const rows = synthesis.providers.map((p) =>
-      p.indicators.find((r) => r.indicator_id === indicator.indicator_id),
-    );
+function indicatorLines(synthesis: SynthesisResult): IndicatorLine[] {
+  const rowsOf = (id: string) =>
+    synthesis.providers.map((p) => p.indicators.find((r) => r.indicator_id === id));
+
+  const validos: IndicatorLine[] = synthesis.indicators.map((indicator) => {
+    const rows = rowsOf(indicator.indicator_id);
     const notas = rows
       .map((r) => r?.normalized_value)
       .filter((v): v is number => typeof v === "number");
-    if (notas.length < 2 || Math.max(...notas) - Math.min(...notas) <= SAME_VALUE_EPS) continue;
-    resultado.push({
+    const separa = notas.length >= 2 && Math.max(...notas) - Math.min(...notas) > SAME_VALUE_EPS;
+    return {
       id: indicator.indicator_id,
       name: indicator.name,
+      kind: separa ? "decisive" : "equal",
       weight: indicator.effective_weight,
       rows,
       bestContribution: Math.max(...rows.map((r) => r?.contribution ?? 0)),
+      reason: null,
+    };
+  });
+
+  // Os de fora vêm na ordem da memória de cálculo (a do primeiro provedor).
+  const validIds = new Set(validos.map((l) => l.id));
+  const fora: IndicatorLine[] = (synthesis.providers[0]?.indicators ?? [])
+    .filter((r) => !validIds.has(r.indicator_id))
+    .map((r) => {
+      const reason = synthesis.excluded_indicators[r.indicator_id] ?? r.excluded_reason;
+      return {
+        id: r.indicator_id,
+        name: r.name,
+        // Mesma nota para todos é resultado, não lacuna: fica junto dos iguais.
+        kind: reason === "non_discriminative" ? "equal" : "excluded",
+        weight: null,
+        rows: rowsOf(r.indicator_id),
+        bestContribution: 0,
+        reason,
+      };
     });
-  }
-  // O que mais pesa na diferença primeiro.
-  return resultado.sort((a, b) => b.weight - a.weight);
+
+  // O que mais pesa na diferença primeiro; depois os iguais; por fim os de fora.
+  const ordem = { decisive: 0, equal: 1, excluded: 2 } as const;
+  return [...validos, ...fora].sort(
+    (a, b) => ordem[a.kind] - ordem[b.kind] || (b.weight ?? -1) - (a.weight ?? -1),
+  );
 }
 
 /**
@@ -148,27 +177,20 @@ export default function SynthesisAudit({
   const [open, setOpen] = useState(false);
   const {
     criteria_order: criteria,
-    dimension_weights: dimWeights,
     providers,
     valid_indicators: valid,
     excluded_indicators: excluded,
   } = synthesis;
-  const top = providers[0];
   const excludedList = Object.entries(excluded);
 
   const applied = appliedDimensionWeights(synthesis);
-  const decisive = decisiveIndicators(synthesis);
-  const indicatorsTotal = (dimension: string) =>
-    top?.indicators.filter((r) => r.dimension === dimension).length ?? 0;
-  const indicatorsValid = (dimension: string) =>
-    synthesis.indicators.filter((i) => i.dimension === dimension).length;
+  const lines = indicatorLines(synthesis);
+  const decisive = lines.filter((l) => l.kind === "decisive");
+  const excludedCount = lines.filter((l) => l.kind === "excluded").length;
   // Indicadores que reuniram evidência mas deram a mesma nota a todos. Com a
   // regra do `scales.json` ativa eles saem da soma e passam a viver aqui, em
   // `excluded` — não são lacuna, são resultado.
   const equivalentes = excludedList.filter(([, motivo]) => motivo === "non_discriminative");
-  const shiftedDimensions = criteria.filter(
-    (c) => Math.abs((applied[c] ?? 0) - (dimWeights[c] ?? 0)) >= WEIGHT_SHIFT_MIN,
-  );
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -270,26 +292,6 @@ export default function SynthesisAudit({
               </li>
             ))}
           </ul>
-
-          {shiftedDimensions.length > 0 && (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-              <p>
-                <strong>O peso aplicado não é o mesmo que você definiu no AHP.</strong> Indicadores
-                sem evidência comparável saem da conta para todos os provedores, e o peso deles é
-                redistribuído entre todos os indicadores que ficaram, de todas as dimensões.
-                Dimensões que perderam mais indicadores perdem peso:
-              </p>
-              <ul className="mt-1.5 space-y-0.5 tabular-nums">
-                {shiftedDimensions.map((c) => (
-                  <li key={c}>
-                    {LABELS[c] || c}: <strong>{pct(dimWeights[c] ?? 0)}</strong> no AHP →{" "}
-                    <strong>{pct(applied[c] ?? 0)}</strong> aplicado ({indicatorsValid(c)} de{" "}
-                    {indicatorsTotal(c)} indicadores com evidência comparável)
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
 
         {/* Camada 2 — de onde vem a diferença entre os provedores */}
@@ -297,15 +299,15 @@ export default function SynthesisAudit({
           <h4 className="mb-2 text-sm font-semibold text-slate-800">
             2. O que separou os provedores
           </h4>
-          {decisive.length === 0 ? (
-            <p className="text-sm leading-relaxed text-slate-600">
-              Todos os {valid.length} indicadores comparáveis deram a mesma nota a todos os
-              provedores. A diferença de pontuação é nula.
-            </p>
-          ) : (
+          {lines.length > 0 && (
             <>
               <p className="mb-2 text-sm leading-relaxed text-slate-600">
-                {equivalentes.length > 0 ? (
+                {decisive.length === 0 ? (
+                  <>
+                    Todos os {valid.length} indicadores comparáveis deram a mesma nota a todos os
+                    provedores. A diferença de pontuação é nula.
+                  </>
+                ) : equivalentes.length > 0 ? (
                   <>
                     A pontuação usa {valid.length} indicador
                     {valid.length === 1 ? "" : "es"}: {valid.length === 1 ? "é o" : "são os"} que
@@ -314,18 +316,20 @@ export default function SynthesisAudit({
                     {equivalentes.length === 1 ? "u" : "ram"} evidência comparável mas
                     {equivalentes.length === 1 ? " deu" : " deram"} a mesma nota aos três — como
                     somam a mesma parcela a todas as pontuações, não alteram a ordem e ficam fora
-                    da soma. A nota de cada um continua na tabela acima.
+                    da soma. A nota de cada um aparece abaixo dos que separaram.
                   </>
                 ) : (
                   <>
-                    Dos {valid.length} indicadores comparáveis, só{" "}
+                    Dos {valid.length} indicadores comparáveis,{" "}
                     {decisive.length === 1
-                      ? "este deu notas diferentes"
-                      : `estes ${decisive.length} deram notas diferentes`}
-                    . Os outros {valid.length - decisive.length} deram a mesma nota a todos e não
-                    mudam a ordem.
+                      ? "só 1 deu notas diferentes"
+                      : `só ${decisive.length} deram notas diferentes`}{" "}
+                    (no topo da tabela). Os outros {valid.length - decisive.length} deram a mesma
+                    nota a todos e não mudam a ordem.
                   </>
                 )}
+                {excludedCount > 0 &&
+                  ` Ao final, ${excludedCount === 1 ? "o indicador" : `os ${excludedCount} indicadores`} que ficaram fora da conta, com o motivo.`}
               </p>
               <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                 <table className="w-full min-w-[36rem] text-sm">
@@ -348,39 +352,91 @@ export default function SynthesisAudit({
                     </tr>
                   </thead>
                   <tbody className="tabular-nums">
-                    {decisive.map((d) => (
-                      <tr key={d.id} className="border-t border-slate-100 align-top">
-                        <td className="px-3 py-2.5 font-medium text-slate-800">{d.name}</td>
-                        <td className="px-3 py-2.5 text-right text-slate-700">{f3(d.weight)}</td>
-                        {d.rows.map((row, i) => {
-                          if (!row || row.contribution === null || row.normalized_value === null) {
+                    {lines.map((d, idx) => {
+                      const grupoNovo = idx > 0 && lines[idx - 1].kind !== d.kind;
+                      const apagado = d.kind !== "decisive";
+                      return (
+                        <tr
+                          key={d.id}
+                          className={`align-top ${
+                            grupoNovo ? "border-t-2 border-slate-200" : "border-t border-slate-100"
+                          } ${d.kind === "excluded" ? "bg-slate-50/70" : ""}`}
+                        >
+                          <td className="px-3 py-2.5">
+                            <span
+                              className={`block font-medium ${
+                                apagado ? "text-slate-600" : "text-slate-800"
+                              }`}
+                            >
+                              {d.name}
+                            </span>
+                            {d.kind === "equal" && (
+                              <span className="block text-[11px] text-slate-400">
+                                mesma nota para todos — não altera a ordem
+                              </span>
+                            )}
+                            {d.kind === "excluded" && (
+                              <span className="block text-[11px] text-amber-700">
+                                fora da conta:{" "}
+                                {(d.reason && EXCLUSION_REASONS[d.reason]) || d.reason || "—"}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-slate-700">
+                            {d.weight === null ? "—" : f3(d.weight)}
+                          </td>
+                          {d.rows.map((row, i) => {
+                            const temValor =
+                              row && (row.category !== null || row.original_value !== null);
+                            if (!row || row.contribution === null || row.normalized_value === null) {
+                              return (
+                                <td
+                                  key={providers[i].id}
+                                  className="px-3 py-2.5 text-right text-slate-400"
+                                >
+                                  {row && temValor ? (
+                                    <span className="block text-[11px]">
+                                      {shownValue(row)}
+                                      {row.normalized_value !== null &&
+                                        ` → nota ${f3(row.normalized_value)}`}
+                                    </span>
+                                  ) : row && d.kind === "excluded" ? (
+                                    <span className="block text-[11px]">sem evidência</span>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                              );
+                            }
+                            const best =
+                              d.kind === "decisive" &&
+                              d.bestContribution - row.contribution <= SAME_VALUE_EPS;
                             return (
-                              <td key={providers[i].id} className="px-3 py-2.5 text-right text-slate-400">
-                                —
+                              <td key={providers[i].id} className="px-3 py-2.5 text-right">
+                                <span className="block text-[11px] text-slate-400">
+                                  {row.imputed_zero
+                                    ? "sem evidência → 0 (penalidade)"
+                                    : `${shownValue(row)} → nota ${f3(row.normalized_value)}`}
+                                </span>
+                                <span
+                                  className={
+                                    "block " +
+                                    (best
+                                      ? "font-bold text-emerald-700"
+                                      : apagado
+                                        ? "text-slate-500"
+                                        : "text-slate-700")
+                                  }
+                                >
+                                  {/* 4 casas: diferenças como 99,9% × 99,99% somem em 3 */}
+                                  parcela {f4(row.contribution)}
+                                </span>
                               </td>
                             );
-                          }
-                          const best = d.bestContribution - row.contribution <= SAME_VALUE_EPS;
-                          return (
-                            <td key={providers[i].id} className="px-3 py-2.5 text-right">
-                              <span className="block text-[11px] text-slate-400">
-                                {row.imputed_zero
-                                  ? "sem evidência → 0 (penalidade)"
-                                  : `${shownValue(row)} → nota ${f3(row.normalized_value)}`}
-                              </span>
-                              <span
-                                className={
-                                  "block " + (best ? "font-bold text-emerald-700" : "text-slate-700")
-                                }
-                              >
-                                {/* 4 casas: diferenças como 99,9% × 99,99% somem em 3 */}
-                                parcela {f4(row.contribution)}
-                              </span>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -451,10 +507,11 @@ export default function SynthesisAudit({
             </div>
           )}
 
-          {top && (
-            <div>
+          {providers.map((p) => (
+            <div key={p.id}>
               <h4 className="mb-2 text-sm font-semibold text-slate-800">
-                Indicador a indicador — {top.name}
+                Indicador a indicador — {p.name}{" "}
+                <span className="font-normal text-slate-500">({p.rank}º, pontuação {f3(p.score)})</span>
               </h4>
               <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                 <table className="w-full min-w-[52rem] text-sm">
@@ -478,7 +535,7 @@ export default function SynthesisAudit({
                     </tr>
                   </thead>
                   <tbody className="tabular-nums">
-                    {top.indicators.map((row) => (
+                    {p.indicators.map((row) => (
                       <tr
                         key={row.indicator_id}
                         className={`border-t border-slate-100 align-top ${
@@ -538,17 +595,17 @@ export default function SynthesisAudit({
                   <tfoot>
                     <tr className="border-t border-slate-200 bg-slate-50 text-xs text-slate-500">
                       <td className="px-3 py-2" colSpan={5}>
-                        Soma das contribuições = score final de {top.name}
+                        Soma das contribuições = score final de {p.name}
                       </td>
                       <td className="px-3 py-2 font-semibold tabular-nums text-slate-700">
-                        {f3(top.score)}
+                        {f3(p.score)}
                       </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             </div>
-          )}
+          ))}
 
           <p className="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
             <strong>De onde vem cada número:</strong> os <em>pesos das dimensões</em> vêm das suas

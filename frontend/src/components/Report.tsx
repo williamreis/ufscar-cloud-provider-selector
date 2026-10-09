@@ -25,7 +25,7 @@ import {
 import EvidenceCard from "./EvidenceCard";
 import AhpAudit from "./AhpAudit";
 import IndicatorWeights from "./IndicatorWeights";
-import SynthesisAudit, { EXCLUSION_REASONS, appliedDimensionWeights } from "./SynthesisAudit";
+import SynthesisAudit from "./SynthesisAudit";
 
 const CRITERIA_LABELS: Record<string, string> = {
   sustainability: "Sustentabilidade",
@@ -58,15 +58,6 @@ function providerColor(id: string, idx: number): string {
 
 const fmt3 = (v: unknown) => Number(v).toFixed(3);
 const fmtPct = (v: unknown) => `${(Number(v) * 100).toFixed(0)}%`;
-const fmtPct1 = (v: unknown) => `${(Number(v) * 100).toFixed(1)}%`;
-// Quatro casas nos fatores da conferência, três no resultado. Com três casas
-// nos fatores o produto chega a cair do outro lado do arredondamento do score,
-// e uma linha de conferência que não fecha é pior que nenhuma.
-const fmt4 = (v: unknown) => Number(v).toFixed(4);
-
-// Diferença entre o peso do AHP e o peso aplicado que vale a pena explicar —
-// meio ponto percentual some no arredondamento da exibição.
-const WEIGHT_SHIFT_MIN = 0.005;
 
 const REPORT_PARTS = [
   {
@@ -160,53 +151,6 @@ export default function Report({
   const providersWithoutEvidence = Object.entries(evidences)
     .filter(([, docs]) => docs.length === 0)
     .map(([id]) => id);
-
-  // Peso com que cada dimensão ENTROU na soma. Não é o peso do AHP sempre que
-  // algum indicador é excluído: a §11.2 redistribui o peso dele entre os que
-  // ficaram, e a dimensão que perdeu indicador encolhe enquanto as outras
-  // crescem. O card dizia usar os pesos do AHP e exibia esses — a conta não
-  // fechava para quem tentasse refazê-la à mão, que é o que a §5.5 promete.
-  const dimOrder = synthesis?.criteria_order ?? Object.keys(cw);
-  const appliedWeights = synthesis ? appliedDimensionWeights(synthesis) : null;
-  const shiftedDimensions =
-    appliedWeights === null
-      ? []
-      : dimOrder.filter(
-          (d) => Math.abs((appliedWeights[d] ?? 0) - (cw[d] ?? 0)) >= WEIGHT_SHIFT_MIN,
-        );
-  // Uma linha por provedor, na ordem do ranking: os fatores da própria conta.
-  const closingRows = (synthesis?.providers ?? []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    score: p.score,
-    terms: dimOrder
-      .map((d) => ({
-        dimension: d,
-        performance: p.cells[d]?.performance,
-        weight: appliedWeights?.[d] ?? 0,
-      }))
-      // Dimensão sem desempenho medido não tem termo — não entra como zero.
-      .filter((t): t is { dimension: string; performance: number; weight: number } =>
-        typeof t.performance === "number" && t.weight > 0,
-      ),
-  }));
-  // Indicadores que saíram da conta: a explicação de por que os pesos mudaram.
-  // O motivo vai junto porque eles não são equivalentes — "nenhum provedor
-  // documenta" e "falta em algum provedor" pedem ações opostas de quem lê, e
-  // uma frase única para os dois casos seria a mesma imprecisão que este bloco
-  // existe para corrigir.
-  const excludedItems = (synthesis?.providers[0]?.indicators ?? [])
-    .filter((i) => !i.in_comparison && i.excluded_reason)
-    .map((i) => ({
-      name: i.name,
-      raw: i.excluded_reason as string,
-      reason: EXCLUSION_REASONS[i.excluded_reason as string] || i.excluded_reason,
-    }));
-  // Os que saíram por darem a mesma nota a todos são um caso à parte: não são
-  // lacuna de evidência, e são a razão de a pontuação viver numa escala mais
-  // alta do que antes. Sem explicar isso, o número parece ter inflado sozinho.
-  const equivalentItems = excludedItems.filter((i) => i.raw === "non_discriminative");
-  const missingItems = excludedItems.filter((i) => i.raw !== "non_discriminative");
 
   const rankData = [...ranking].sort((a, b) => a.score - b.score);
   const weightsData = Object.entries(cw).map(([k, v]) => ({
@@ -407,150 +351,6 @@ export default function Report({
               </div>
             ))}
           </div>
-
-          {closingRows.length > 0 && (
-            <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-sm font-semibold text-slate-800">Confira a conta</p>
-              <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500">
-                Cada linha é a pontuação do provedor: a nota dele em cada dimensão multiplicada
-                pelo peso com que aquela dimensão entrou na soma.
-              </p>
-              <ul className="mt-2 space-y-1 font-mono text-[12px] text-slate-600">
-                {closingRows.map((row) => (
-                  <li key={row.id}>
-                    <span className="font-sans font-medium text-slate-800">{row.name}</span> ={" "}
-                    {row.terms
-                      .map((t) => `${fmt4(t.performance)} × ${fmt4(t.weight)}`)
-                      .join(" + ")}{" "}
-                    = <strong className="text-slate-900">{fmt3(row.score)}</strong>
-                  </li>
-                ))}
-              </ul>
-
-              {equivalentItems.length > 0 && (
-                <p className="mt-2 border-t border-slate-200 pt-2 text-[12px] leading-relaxed text-slate-500">
-                  A soma usa apenas os indicadores em que os provedores diferem.{" "}
-                  {equivalentItems.length === 1 ? "Outro" : `Outros ${equivalentItems.length}`}{" "}
-                  ({equivalentItems.map((i) => i.name).join(", ")}) deram a mesma nota aos três:
-                  somariam a mesma parcela a todas as pontuações, então não mudam a ordem — só
-                  aproximariam os números uns dos outros. Ficam no relatório com a nota que
-                  obtiveram, fora da conta.
-                </p>
-              )}
-
-              {shiftedDimensions.length > 0 && appliedWeights && (
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900">
-                  <p>
-                    <strong>O peso usado não é exatamente o que você declarou no AHP.</strong>{" "}
-                    {missingItems.length > 0 && (
-                      <>
-                        {missingItems.length === 1
-                          ? "Um indicador saiu da conta: "
-                          : `${missingItems.length} indicadores saíram da conta: `}
-                        {missingItems.map((item, i) => (
-                          <span key={item.name}>
-                            {i > 0 && "; "}
-                            {item.name} ({item.reason})
-                          </span>
-                        ))}
-                        .{" "}
-                      </>
-                    )}
-                    {equivalentItems.length > 0 && (
-                      <>
-                        {missingItems.length > 0 ? "Outro" : "Um"}
-                        {equivalentItems.length === 1 ? "" : "s"}{" "}
-                        {equivalentItems.length === 1 ? "" : `${equivalentItems.length} `}
-                        {equivalentItems.length === 1 ? "indicador saiu" : "saíram"} por dar a
-                        mesma nota a todos (citado{equivalentItems.length === 1 ? "" : "s"} acima).{" "}
-                      </>
-                    )}
-                    O peso {excludedItems.length === 1 ? "dele" : "deles"} foi redistribuído
-                    entre os indicadores que ficaram, então cada dimensão entrou na soma com um
-                    peso um pouco diferente:
-                  </p>
-                  <ul className="mt-1.5 space-y-0.5 tabular-nums">
-                    {shiftedDimensions.map((d) => (
-                      <li key={d}>
-                        {CRITERIA_ICONS[d] || ""} {CRITERIA_LABELS[d] || d}:{" "}
-                        <strong>{fmtPct1(cw[d] ?? 0)}</strong> declarado no AHP →{" "}
-                        <strong>{fmtPct1(appliedWeights[d] ?? 0)}</strong> aplicado
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {sensitivity && (
-            <div
-              className={
-                "mb-5 rounded-xl border px-4 py-3 text-sm leading-relaxed " +
-                (sensitivity.margin_within_tolerance || !sensitivity.robust
-                  ? "border-amber-300 bg-amber-50 text-amber-900"
-                  : "border-emerald-300 bg-emerald-50 text-emerald-900")
-              }
-            >
-              <p className="font-semibold">
-                {sensitivity.margin_within_tolerance
-                  ? "Os provedores no topo estão tecnicamente empatados."
-                  : sensitivity.robust
-                    ? "O primeiro lugar é robusto às suas prioridades."
-                    : "O primeiro lugar depende do peso que você deu às dimensões."}
-              </p>
-              <p className="mt-1">
-                A diferença entre o 1º e o 2º colocados é de{" "}
-                <strong>{sensitivity.margin.toFixed(3)}</strong> ponto
-                {sensitivity.margin_within_tolerance && (
-                  <> — abaixo da margem de indiferença de {sensitivity.tie_break_tolerance.toFixed(2)}</>
-                )}
-                .{" "}
-                {sensitivity.robust ? (
-                  <>
-                    Nenhuma mudança no peso de uma dimensão, sozinha, troca quem lidera.
-                  </>
-                ) : (
-                  <>
-                    Bastaria mover o peso de{" "}
-                    <strong>
-                      {CRITERIA_LABELS[sensitivity.most_fragile_dimension || ""] ||
-                        sensitivity.most_fragile_dimension}
-                    </strong>{" "}
-                    em{" "}
-                    <strong>
-                      {Math.abs((sensitivity.most_fragile_delta || 0) * 100).toFixed(1)} ponto
-                      {Math.abs((sensitivity.most_fragile_delta || 0) * 100) >= 2 ? "s" : ""}
-                    </strong>{" "}
-                    percentuais para o topo mudar.
-                  </>
-                )}
-              </p>
-              <ul className="mt-2 space-y-0.5 text-[12px]">
-                {sensitivity.dimensions.map((d) => (
-                  <li key={d.dimension}>
-                    {CRITERIA_ICONS[d.dimension] || ""} {CRITERIA_LABELS[d.dimension] || d.dimension}{" "}
-                    <span className="font-mono">({fmtPct(d.weight)})</span> —{" "}
-                    {d.flips ? (
-                      <>
-                        troca o líder para{" "}
-                        <strong>{providerName(d.flip_leader || "")}</strong> com{" "}
-                        {(d.flip_delta || 0) > 0 ? "+" : "−"}
-                        {Math.abs((d.flip_delta || 0) * 100).toFixed(1)} p.p.
-                      </>
-                    ) : (
-                      <>nenhum peso possível troca o líder</>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[11px] opacity-80">
-                Cada linha move o peso daquela dimensão e reescala as outras
-                proporcionalmente, mantendo as suas demais respostas. É uma medida sobre o
-                resultado: não altera pontuação, peso nem posição.
-              </p>
-            </div>
-          )}
 
           <ChartCard>
             <ResponsiveContainer width="100%" height={230}>
