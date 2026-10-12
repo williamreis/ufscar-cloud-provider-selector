@@ -580,14 +580,14 @@ export default function SynthesisAudit({
                           {row.normalized_value === null
                             ? "—"
                             : row.imputed_zero
-                              ? `${f4(row.normalized_value)} (penalidade: sem evidência)`
-                              : f4(row.normalized_value)}
+                              ? `${f3(row.normalized_value)} (penalidade: sem evidência)`
+                              : f3(row.normalized_value)}
                         </td>
                         <td className="px-3 py-2.5">
-                          {row.effective_weight === null ? "—" : f4(row.effective_weight)}
+                          {row.effective_weight === null ? "—" : f3(row.effective_weight)}
                         </td>
                         <td className="px-3 py-2.5 font-semibold text-slate-900">
-                          {row.contribution === null ? "—" : f4(row.contribution)}
+                          {row.contribution === null ? "—" : f3(row.contribution)}
                         </td>
                       </tr>
                     ))}
