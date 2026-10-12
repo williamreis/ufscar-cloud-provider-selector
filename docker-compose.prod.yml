@@ -93,7 +93,8 @@ services:
     labels:
       # Sem traefik.enable=true o container é ignorado (--exposedbydefault=false).
       - "traefik.enable=true"
-      - "traefik.http.routers.cloud-selector.rule=Host(`${APP_DOMAIN}`)"
+      # - "traefik.http.routers.cloud-selector.rule=Host(`${APP_DOMAIN_1}`)"
+      - "traefik.http.routers.cloud-selector.rule=Host(`${APP_DOMAIN_1}`) || Host(`${APP_DOMAIN_2}`)"
       # `websecure` e `letsencrypt` são os nomes definidos no command do Traefik.
       - "traefik.http.routers.cloud-selector.entrypoints=websecure"
       - "traefik.http.routers.cloud-selector.tls.certresolver=letsencrypt"
