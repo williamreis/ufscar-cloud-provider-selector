@@ -41,6 +41,9 @@ export default function NavBar() {
               Relatório
             </NavLink>
           )}
+          <NavLink to="/about" className={linkClass}>
+            Sobre
+          </NavLink>
         </nav>
 
         <span

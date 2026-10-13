@@ -7,6 +7,7 @@ import Results from "./pages/Results";
 import Ingest from "./pages/Ingest";
 import Control from "./pages/Control";
 import Admin from "./pages/Admin";
+import About from "./pages/About";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/results" element={<Results />} />
             <Route path="/ingest" element={<Ingest />} />
             <Route path="/control" element={<Control />} />
+            <Route path="/about" element={<About />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/admin/:id" element={<Admin />} />
           </Routes>
